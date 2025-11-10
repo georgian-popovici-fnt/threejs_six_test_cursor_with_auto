@@ -40,7 +40,8 @@
             ],
             "scripts": [],
             "allowedCommonJsDependencies": [
-              "stats.js"
+              "stats.js",
+              "web-ifc"
             ]
           },
           "configurations": {
