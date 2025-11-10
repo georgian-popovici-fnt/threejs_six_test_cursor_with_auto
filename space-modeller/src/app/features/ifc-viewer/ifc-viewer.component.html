@@ -1,0 +1,87 @@
+<!-- IFC Viewer Container -->
+<div class="viewer-container">
+  <!-- Canvas for Three.js rendering -->
+  <canvas
+    #canvas
+    class="viewer-canvas"
+    role="img"
+    aria-label="3D viewport"
+  ></canvas>
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <!-- File Import -->
+    <div class="toolbar-section">
+      <label class="file-input-label" [class.disabled]="isLoading()">
+        <input
+          type="file"
+          accept=".ifc"
+          class="file-input"
+          (change)="onFileSelected($event)"
+          [disabled]="isLoading()"
+        />
+        <svg
+          class="icon"
+          xmlns="http://www.w3.org/2000/svg"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+          />
+        </svg>
+        <span class="button-text">{{ isLoading() ? 'Loading...' : 'Import IFC' }}</span>
+      </label>
+    </div>
+
+    <!-- Export Fragment -->
+    <div class="toolbar-section">
+      <button
+        class="toolbar-button"
+        (click)="onExportFragment()"
+        [disabled]="!hasModel() || isLoading()"
+        [class.disabled]="!hasModel() || isLoading()"
+        title="Export as .frag file"
+      >
+        <svg
+          class="icon"
+          xmlns="http://www.w3.org/2000/svg"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10"
+          />
+        </svg>
+        <span class="button-text">Download .frag</span>
+      </button>
+    </div>
+
+    <!-- Model Name Display -->
+    @if (modelName()) {
+      <div class="model-info">
+        <span class="model-name">{{ modelName() }}</span>
+      </div>
+    }
+  </div>
+
+  <!-- Loading Overlay -->
+  @if (isLoading()) {
+    <div class="loading-overlay">
+      <div class="loading-content">
+        <div class="spinner"></div>
+        <p class="loading-text">Loading IFC Model...</p>
+        <p class="loading-progress">{{ loadingProgress().toFixed(1) }}%</p>
+      </div>
+    </div>
+  }
+</div>
+
