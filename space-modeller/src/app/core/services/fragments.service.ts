@@ -17,6 +17,8 @@ export class FragmentsService {
   private fragmentsManager: OBC.FragmentsManager | null = null;
   private ifcLoader: OBC.IfcLoader | null = null;
   private currentModel: FRAG.FragmentsModel | null = null;
+  private isInitialized = false;
+  private initializationPromise: Promise<void> | null = null;
 
   /**
    * Initialize @thatopen/components with the provided scene and configuration
@@ -27,21 +29,48 @@ export class FragmentsService {
     renderer: THREE.WebGLRenderer,
     config: ViewerConfig
   ): Promise<void> {
-    if (this.components) {
-      console.warn('FragmentsService already initialized');
+    // If already initialized, return immediately
+    if (this.isInitialized) {
+      console.log('FragmentsService already initialized');
       return;
     }
 
-    // Create OBC Components instance
-    this.components = new OBC.Components();
+    // If initialization is in progress, wait for it
+    if (this.initializationPromise) {
+      console.log('FragmentsService initialization in progress, waiting...');
+      return this.initializationPromise;
+    }
 
-    // Initialize FragmentsManager
-    this.fragmentsManager = this.components.get(OBC.FragmentsManager);
+    // Start initialization
+    this.initializationPromise = this._doInitialize(config);
+    await this.initializationPromise;
+    this.isInitialized = true;
+  }
 
-    // Initialize IFC Loader
-    this.ifcLoader = this.components.get(OBC.IfcLoader);
+  /**
+   * Internal initialization method
+   */
+  private async _doInitialize(config: ViewerConfig): Promise<void> {
+    try {
+      console.log('Initializing FragmentsService...');
 
-    if (this.ifcLoader) {
+      // Create OBC Components instance
+      this.components = new OBC.Components();
+
+      // Initialize FragmentsManager
+      this.fragmentsManager = this.components.get(OBC.FragmentsManager);
+      console.log('FragmentsManager initialized');
+
+      // Initialize IFC Loader
+      this.ifcLoader = this.components.get(OBC.IfcLoader);
+
+      if (!this.ifcLoader) {
+        throw new Error('Failed to get IFC Loader from components');
+      }
+
+      console.log('IFC Loader obtained, setting up WASM...');
+      console.log('WASM path:', config.wasm.path);
+
       // Configure WASM settings
       await this.ifcLoader.setup({
         wasm: {
@@ -49,7 +78,21 @@ export class FragmentsService {
           absolute: !config.wasm.useLocal,
         },
       });
+
+      console.log('WASM setup completed successfully');
+    } catch (error) {
+      console.error('Failed to initialize FragmentsService:', error);
+      this.isInitialized = false;
+      this.initializationPromise = null;
+      throw error;
     }
+  }
+
+  /**
+   * Check if the service is initialized
+   */
+  isReady(): boolean {
+    return this.isInitialized && this.ifcLoader !== null;
   }
 
   /**
@@ -64,12 +107,22 @@ export class FragmentsService {
     modelName: string,
     onProgress?: (progress: number) => void
   ): Promise<FRAG.FragmentsModel | null> {
+    if (!this.isReady()) {
+      const error = 'IFC Loader not initialized. Please wait for initialization to complete.';
+      console.error(error);
+      throw new Error(error);
+    }
+
     if (!this.ifcLoader) {
-      console.error('IFC Loader not initialized');
-      return null;
+      const error = 'IFC Loader instance is null';
+      console.error(error);
+      throw new Error(error);
     }
 
     try {
+      console.log(`Starting IFC load for: ${modelName}`);
+      console.log(`Buffer size: ${buffer.byteLength} bytes`);
+
       // Progress callback wrapper
       const progressCallback = (progress: number) => {
         const percent = Math.round(progress * 1000) / 10; // 1 decimal precision
@@ -80,17 +133,24 @@ export class FragmentsService {
       };
 
       // Load IFC with progress tracking
+      console.log('Calling ifcLoader.load()...');
       const model = await this.ifcLoader.load(buffer, false, modelName, {
         processData: { progressCallback },
       });
 
+      if (!model) {
+        throw new Error('IFC loader returned null model');
+      }
+
       this.currentModel = model;
       console.log(`IFC model "${modelName}" loaded successfully`);
+      console.log('Model ID:', model.modelId);
 
       return model;
     } catch (error) {
       console.error('Failed to load IFC file:', error);
-      return null;
+      console.error('Error details:', error instanceof Error ? error.message : String(error));
+      throw error;
     }
   }
 
@@ -152,6 +212,8 @@ export class FragmentsService {
    * Dispose of all resources and clean up
    */
   dispose(): void {
+    console.log('Disposing FragmentsService...');
+
     if (this.currentModel) {
       // Dispose of the current model's geometries and materials
       this.currentModel.dispose();
@@ -172,6 +234,10 @@ export class FragmentsService {
       this.components.dispose();
       this.components = null;
     }
+
+    // Reset initialization state
+    this.isInitialized = false;
+    this.initializationPromise = null;
 
     console.log('FragmentsService disposed');
   }

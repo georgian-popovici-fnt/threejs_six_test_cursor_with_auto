@@ -61,28 +61,38 @@ export class IfcViewerComponent {
 
   // Signals for UI state
   readonly isLoading = signal(false);
+  readonly isInitializing = signal(true);
   readonly loadingProgress = signal(0);
   readonly modelName = signal<string | null>(null);
   readonly hasModel = signal(false);
+  readonly errorMessage = signal<string | null>(null);
 
   constructor() {
     afterNextRender(() => {
-      this.initThreeJs();
-      this.initStats();
-      this.setupResizeObserver();
-      this.ngZone.runOutsideAngular(() => this.animate());
+      this.initThreeJs()
+        .then(() => {
+          this.initStats();
+          this.setupResizeObserver();
+          this.ngZone.runOutsideAngular(() => this.animate());
+        })
+        .catch((error) => {
+          console.error('Failed to initialize viewer:', error);
+          this.errorMessage.set('Failed to initialize 3D viewer. Please refresh the page.');
+          this.isInitializing.set(false);
+        });
     });
   }
 
   /**
    * Initialize Three.js scene, renderer, camera, and lighting
    */
-  private initThreeJs(): void {
+  private async initThreeJs(): Promise<void> {
     const canvas = this.canvasRef().nativeElement;
     const container = canvas.parentElement;
     if (!container) {
-      console.error('Canvas container not found');
-      return;
+      const error = 'Canvas container not found';
+      console.error(error);
+      throw new Error(error);
     }
 
     // Scene
@@ -147,17 +157,19 @@ export class IfcViewerComponent {
       this.fragmentsService.updateCulling(this.camera);
     });
 
-    // Initialize FragmentsService
-    this.fragmentsService
-      .initialize(this.scene, this.camera, this.renderer, this.config)
-      .then(() => {
-        console.log('FragmentsService initialized');
-      })
-      .catch((error) => {
-        console.error('Failed to initialize FragmentsService:', error);
-      });
-
     console.log('Three.js initialized with modern renderer settings');
+
+    // Initialize FragmentsService and WAIT for it to complete
+    console.log('Initializing FragmentsService...');
+    try {
+      await this.fragmentsService.initialize(this.scene, this.camera, this.renderer, this.config);
+      console.log('FragmentsService initialized successfully');
+      this.isInitializing.set(false);
+    } catch (error) {
+      console.error('Failed to initialize FragmentsService:', error);
+      this.errorMessage.set('Failed to initialize IFC loader. Please check your network connection and refresh the page.');
+      throw error;
+    }
   }
 
   /**
@@ -257,9 +269,18 @@ export class IfcViewerComponent {
       return;
     }
 
+    // Check if service is initialized
+    if (!this.fragmentsService.isReady()) {
+      console.error('IFC Loader not ready yet');
+      alert('Please wait for the viewer to initialize before loading IFC files.');
+      input.value = '';
+      return;
+    }
+
     if (!file.name.toLowerCase().endsWith('.ifc')) {
       console.error('Please select a valid .ifc file');
       alert('Please select a valid .ifc file');
+      input.value = '';
       return;
     }
 
@@ -275,6 +296,7 @@ export class IfcViewerComponent {
   private async loadIfcFile(file: File): Promise<void> {
     this.isLoading.set(true);
     this.loadingProgress.set(0);
+    this.errorMessage.set(null);
 
     try {
       // Read file as ArrayBuffer
@@ -287,16 +309,24 @@ export class IfcViewerComponent {
 
       console.log(`Loading IFC file: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
 
-      // Load IFC using FragmentsService
+      // Load IFC using FragmentsService with progress callback that runs in Angular zone
       const model = await this.fragmentsService.loadIfc(
         uint8Array,
         modelName,
         (progress) => {
-          this.loadingProgress.set(progress);
+          // Run callback in Angular zone to trigger change detection
+          this.ngZone.run(() => {
+            this.loadingProgress.set(progress);
+          });
         }
       );
 
-      if (model) {
+      if (!model) {
+        throw new Error('IFC loader returned null model');
+      }
+
+      // Run scene updates in Angular zone
+      this.ngZone.run(() => {
         // Bind model to camera for culling
         this.fragmentsService.bindModelToCamera(model, this.camera);
 
@@ -311,16 +341,19 @@ export class IfcViewerComponent {
 
         this.hasModel.set(true);
         console.log(`IFC model "${modelName}" loaded and added to scene`);
-      } else {
-        console.error('Failed to load IFC model');
-        alert('Failed to load IFC file. Please check the console for details.');
-      }
+      });
     } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error occurred';
       console.error('Error loading IFC file:', error);
-      alert('Error loading IFC file. Please check the console for details.');
+      this.ngZone.run(() => {
+        this.errorMessage.set(`Failed to load IFC file: ${errorMsg}`);
+        alert(`Error loading IFC file: ${errorMsg}\n\nPlease check the console for more details.`);
+      });
     } finally {
-      this.isLoading.set(false);
-      this.loadingProgress.set(0);
+      this.ngZone.run(() => {
+        this.isLoading.set(false);
+        this.loadingProgress.set(0);
+      });
     }
   }
 

@@ -53,8 +53,8 @@ export interface ViewerConfig {
  */
 export const DEFAULT_VIEWER_CONFIG: ViewerConfig = {
   wasm: {
-    // CDN path for quick development (current default)
-    path: 'https://unpkg.com/web-ifc@0.0.59/',
+    // CDN path matching installed web-ifc version 0.0.72
+    path: 'https://unpkg.com/web-ifc@0.0.72/',
     useLocal: false,
     // For production, use local WASM path:
     // Place web-ifc WASM files in public/wasm/web-ifc/ directory
@@ -87,7 +87,7 @@ export const DEFAULT_VIEWER_CONFIG: ViewerConfig = {
 export const DEV_VIEWER_CONFIG: ViewerConfig = {
   ...DEFAULT_VIEWER_CONFIG,
   wasm: {
-    path: 'https://unpkg.com/web-ifc@0.0.59/',
+    path: 'https://unpkg.com/web-ifc@0.0.72/',
     useLocal: false,
   },
 };
