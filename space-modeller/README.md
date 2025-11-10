@@ -80,6 +80,8 @@ npm start
 
 Navigate to `http://localhost:4200/`. The application will automatically reload if you change any source files.
 
+**Note:** The development server uses a proxy configuration (`proxy.conf.json`) to handle CORS issues with the ThatOpen Components worker. This is automatically configured and requires no additional setup.
+
 ## Configuration
 
 ### WASM Path Configuration
@@ -215,10 +217,17 @@ Uses `OnPush` change detection strategy with signals for reactive state manageme
 
 ## Troubleshooting
 
+### CORS Error for Worker Script
+- **Error**: `Failed to construct 'Worker': Script at 'https://thatopen.github.io/engine_fragment/resources/worker.mjs' cannot be accessed from origin 'http://localhost:4200'`
+  - **Solution**: This is already fixed with the proxy configuration in `proxy.conf.json`
+  - Make sure you restart the development server after pulling updates: `npm start`
+  - The proxy automatically handles CORS issues in development
+  - For production deployment, see `CORS_FIX.md` for detailed instructions
+
 ### WASM Loading Issues
 - **Error**: `Failed to fetch WASM`
   - **Solution**: Check WASM path in `viewer.config.ts`
-  - For development, use CDN path: `https://unpkg.com/web-ifc@0.0.59/`
+  - For development, use CDN path: `https://unpkg.com/web-ifc@0.0.72/`
   - For production, place WASM files in `public/wasm/web-ifc/`
 
 ### IFC Loading Fails
@@ -254,6 +263,15 @@ Run unit tests:
 ```bash
 npm test
 ```
+
+## Documentation
+
+Additional documentation files:
+- **CORS_FIX.md** - Detailed explanation of the CORS proxy solution for development and production
+- **CONFIGURATION.md** - Complete configuration guide for all viewer settings
+- **IMPLEMENTATION_NOTES.md** - Implementation details and architecture decisions
+- **IFC_LOADING_FIX.md** - IFC loading troubleshooting and fixes
+- **PROJECT_SUMMARY.md** - Project overview and summary
 
 ## Contributing
 
