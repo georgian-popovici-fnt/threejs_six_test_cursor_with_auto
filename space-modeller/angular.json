@@ -42,7 +42,8 @@
             "allowedCommonJsDependencies": [
               "stats.js",
               "web-ifc"
-            ]
+            ],
+            "externalDependencies": []
           },
           "configurations": {
             "production": {
