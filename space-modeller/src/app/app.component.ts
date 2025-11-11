@@ -1,14 +1,12 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { Component } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
-import { IfcViewerComponent } from './features/ifc-viewer/ifc-viewer.component';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet, IfcViewerComponent],
+  imports: [RouterOutlet],
   templateUrl: './app.component.html',
-  styleUrl: './app.component.css',
-  changeDetection: ChangeDetectionStrategy.OnPush
+  styleUrl: './app.component.css'
 })
 export class AppComponent {
   title = 'space-modeller';

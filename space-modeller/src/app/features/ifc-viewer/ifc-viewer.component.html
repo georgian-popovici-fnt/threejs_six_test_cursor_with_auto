@@ -1,131 +1,84 @@
-<!-- IFC Viewer Container -->
 <div class="viewer-container">
-  <!-- Canvas for Three.js rendering -->
-  <canvas
-    #canvas
+  <!-- 3D Canvas -->
+  <canvas 
+    #canvas 
     class="viewer-canvas"
-    role="img"
-    aria-label="3D viewport"
+    role="application"
+    aria-label="3D viewport for IFC model visualization"
   ></canvas>
 
   <!-- Toolbar -->
-  <div class="toolbar">
-    <!-- File Import -->
-    <div class="toolbar-section">
-      <label class="file-input-label" [class.disabled]="isLoading() || isInitializing()">
-        <input
-          type="file"
-          accept=".ifc"
-          class="file-input"
-          (change)="onFileSelected($event)"
-          [disabled]="isLoading() || isInitializing()"
-        />
-        <svg
-          class="icon"
-          xmlns="http://www.w3.org/2000/svg"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
-          />
-        </svg>
-        <span class="button-text">
-          @if (isInitializing()) {
-            Initializing...
-          } @else if (isLoading()) {
-            Loading...
-          } @else {
-            Import IFC
-          }
-        </span>
-      </label>
-    </div>
+  <div class="toolbar" role="toolbar" aria-label="Viewer controls">
+    <!-- File Input (hidden) -->
+    <input
+      #fileInput
+      type="file"
+      accept=".ifc"
+      (change)="onFileSelected($event)"
+      class="file-input"
+      aria-label="Select IFC file"
+    />
 
-    <!-- Export Fragment -->
-    <div class="toolbar-section">
-      <button
-        class="toolbar-button"
-        (click)="onExportFragment()"
-        [disabled]="!hasModel() || isLoading()"
-        [class.disabled]="!hasModel() || isLoading()"
-        title="Export as .frag file"
-      >
-        <svg
-          class="icon"
-          xmlns="http://www.w3.org/2000/svg"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10"
-          />
-        </svg>
-        <span class="button-text">Download .frag</span>
-      </button>
-    </div>
+    <!-- Import Button -->
+    <button
+      class="toolbar-button"
+      (click)="openFilePicker()"
+      [disabled]="isLoading()"
+      aria-label="Import IFC file"
+      title="Import IFC file"
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+        <polyline points="17 8 12 3 7 8"></polyline>
+        <line x1="12" y1="3" x2="12" y2="15"></line>
+      </svg>
+      <span>Import IFC</span>
+    </button>
 
-    <!-- Model Name Display -->
-    @if (modelName()) {
+    <!-- Export Button -->
+    <button
+      class="toolbar-button"
+      (click)="downloadFragment()"
+      [disabled]="!currentModel()?.fragmentUuid || isLoading()"
+      aria-label="Download as .frag"
+      title="Download as .frag"
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+        <polyline points="7 10 12 15 17 10"></polyline>
+        <line x1="12" y1="15" x2="12" y2="3"></line>
+      </svg>
+      <span>Download .frag</span>
+    </button>
+
+    <!-- Model Info -->
+    @if (currentModel(); as model) {
       <div class="model-info">
-        <span class="model-name">{{ modelName() }}</span>
+        <span class="model-name">{{ model.name }}</span>
+        @if (model.loading) {
+          <span class="model-progress">{{ model.progress.toFixed(1) }}%</span>
+        }
       </div>
     }
   </div>
 
   <!-- Loading Overlay -->
   @if (isLoading()) {
-    <div class="loading-overlay">
-      <div class="loading-content">
-        <div class="spinner"></div>
-        <p class="loading-text">Loading IFC Model...</p>
-        <p class="loading-progress">{{ loadingProgress().toFixed(1) }}%</p>
-      </div>
-    </div>
-  }
-
-  <!-- Initialization Overlay -->
-  @if (isInitializing()) {
-    <div class="loading-overlay">
-      <div class="loading-content">
-        <div class="spinner"></div>
-        <p class="loading-text">Initializing 3D Viewer...</p>
-        <p class="loading-progress">Loading WASM modules...</p>
+    <div class="loading-overlay" role="status" aria-live="polite">
+      <div class="loading-spinner"></div>
+      <div class="loading-text">
+        Loading IFC file...
+        @if (currentModel()?.progress; as progress) {
+          <span>{{ progress.toFixed(1) }}%</span>
+        }
       </div>
     </div>
   }
 
   <!-- Error Message -->
-  @if (errorMessage()) {
-    <div class="error-overlay">
-      <div class="error-content">
-        <svg
-          class="error-icon"
-          xmlns="http://www.w3.org/2000/svg"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-          />
-        </svg>
-        <p class="error-text">{{ errorMessage() }}</p>
-        <button class="error-close-button" (click)="errorMessage.set(null)">
-          Close
-        </button>
-      </div>
+  @if (currentModel()?.error; as error) {
+    <div class="error-message" role="alert">
+      <strong>Error:</strong> {{ error }}
     </div>
   }
 </div>

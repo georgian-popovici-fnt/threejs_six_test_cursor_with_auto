@@ -3,11 +3,13 @@
   "version": "0.0.0",
   "scripts": {
     "ng": "ng",
+    "setup:wasm": "node scripts/copy-wasm.js",
+    "prestart": "npm run setup:wasm",
     "start": "ng serve",
+    "prebuild": "npm run setup:wasm",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
-    "test": "ng test",
-    "setup:wasm": "node scripts/setup-wasm.js"
+    "test": "ng test"
   },
   "private": true,
   "dependencies": {
@@ -22,7 +24,6 @@
     "@thatopen/components": "^3.2.3",
     "@thatopen/components-front": "^3.2.1",
     "@thatopen/fragments": "^3.2.4",
-    "@thatopen/ui": "^3.2.0",
     "rxjs": "~7.8.0",
     "stats.js": "^0.17.0",
     "three": "^0.180.0",
@@ -36,7 +37,7 @@
     "@angular/compiler-cli": "^18.2.0",
     "@types/jasmine": "~5.1.0",
     "@types/stats.js": "^0.17.4",
-    "@types/three": "^0.181.0",
+    "@types/three": "^0.180.0",
     "jasmine-core": "~5.2.0",
     "karma": "~6.4.0",
     "karma-chrome-launcher": "~3.2.0",

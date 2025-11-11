@@ -13,6 +13,12 @@
           "changeDetection": "OnPush",
           "style": "css",
           "standalone": true
+        },
+        "@schematics/angular:directive": {
+          "standalone": true
+        },
+        "@schematics/angular:pipe": {
+          "standalone": true
         }
       },
       "root": "",
@@ -40,23 +46,22 @@
             ],
             "scripts": [],
             "allowedCommonJsDependencies": [
-              "stats.js",
-              "web-ifc"
-            ],
-            "externalDependencies": []
+              "web-ifc",
+              "stats.js"
+            ]
           },
           "configurations": {
             "production": {
               "budgets": [
                 {
                   "type": "initial",
-                  "maximumWarning": "8MB",
-                  "maximumError": "10MB"
+                  "maximumWarning": "500kB",
+                  "maximumError": "1MB"
                 },
                 {
                   "type": "anyComponentStyle",
-                  "maximumWarning": "5kB",
-                  "maximumError": "10kB"
+                  "maximumWarning": "4kB",
+                  "maximumError": "6kB"
                 }
               ],
               "outputHashing": "all"
@@ -71,9 +76,6 @@
         },
         "serve": {
           "builder": "@angular-devkit/build-angular:dev-server",
-          "options": {
-            "proxyConfig": "proxy.conf.json"
-          },
           "configurations": {
             "production": {
               "buildTarget": "space-modeller:build:production"

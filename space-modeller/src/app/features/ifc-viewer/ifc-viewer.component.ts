@@ -7,22 +7,22 @@ import {
   NgZone,
   afterNextRender,
   signal,
+  DestroyRef,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import Stats from 'stats.js';
 import { FragmentsService } from '../../core/services/fragments.service';
 import {
-  DEFAULT_VIEWER_CONFIG,
-  ViewerConfig,
-} from '../../shared/constants/viewer.config';
+  VIEWER_CONFIG,
+  RENDERER_CONFIG,
+  CAMERA_CONFIG,
+  CONTROLS_CONFIG,
+} from '../../shared/constants/viewer.constants';
+import { ModelState } from '../../shared/models/viewer.model';
 
-/**
- * IFC Viewer Component
- * Production-ready 3D viewer for loading and rendering IFC files using Three.js and @thatopen/components.
- * Implements modern renderer settings, fragment-based rendering, and robust resource management.
- */
 @Component({
   selector: 'app-ifc-viewer',
   standalone: true,
@@ -33,202 +33,167 @@ import {
 })
 export class IfcViewerComponent {
   private readonly ngZone = inject(NgZone);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly fragmentsService = inject(FragmentsService);
   private readonly canvasRef = viewChild.required<ElementRef<HTMLCanvasElement>>('canvas');
+  private readonly fileInputRef = viewChild.required<ElementRef<HTMLInputElement>>('fileInput');
 
-  // Three.js core
+  // Three.js objects
   private renderer!: THREE.WebGLRenderer;
   private scene!: THREE.Scene;
   private camera!: THREE.PerspectiveCamera;
   private controls!: OrbitControls;
-
-  // Helpers
   private gridHelper?: THREE.GridHelper;
-  private ambientLight!: THREE.AmbientLight;
-  private directionalLight!: THREE.DirectionalLight;
-
-  // Stats.js for memory monitoring
   private stats?: Stats;
-
-  // Animation frame ID for cleanup
   private animationFrameId?: number;
 
-  // Resize observer for responsive canvas
+  // State
+  readonly currentModel = signal<ModelState | null>(null);
+  readonly isLoading = signal<boolean>(false);
+
+  // Resize observer
   private resizeObserver?: ResizeObserver;
-
-  // Configuration
-  private config: ViewerConfig = DEFAULT_VIEWER_CONFIG;
-
-  // Signals for UI state
-  readonly isLoading = signal(false);
-  readonly isInitializing = signal(true);
-  readonly loadingProgress = signal(0);
-  readonly modelName = signal<string | null>(null);
-  readonly hasModel = signal(false);
-  readonly errorMessage = signal<string | null>(null);
 
   constructor() {
     afterNextRender(() => {
-      this.initThreeJs()
-        .then(() => {
-          this.initStats();
-          this.setupResizeObserver();
-          this.ngZone.runOutsideAngular(() => this.animate());
-        })
-        .catch((error) => {
-          console.error('Failed to initialize viewer:', error);
-          this.errorMessage.set('Failed to initialize 3D viewer. Please refresh the page.');
-          this.isInitializing.set(false);
-        });
+      this.initViewer();
+      this.ngZone.runOutsideAngular(() => this.animate());
     });
   }
 
   /**
-   * Initialize Three.js scene, renderer, camera, and lighting
+   * Initialize the Three.js viewer and ThatOpen components
    */
-  private async initThreeJs(): Promise<void> {
-    const canvas = this.canvasRef().nativeElement;
-    const container = canvas.parentElement;
-    if (!container) {
-      const error = 'Canvas container not found';
-      console.error(error);
-      throw new Error(error);
-    }
-
-    // Scene
-    this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(this.config.visual.backgroundColor);
-
-    // Camera
-    const aspect = container.clientWidth / container.clientHeight;
-    this.camera = new THREE.PerspectiveCamera(
-      this.config.camera.fov,
-      aspect,
-      this.config.camera.near,
-      this.config.camera.far
-    );
-    this.camera.position.set(...this.config.camera.position);
-    this.camera.lookAt(...this.config.camera.target);
-
-    // Renderer with modern settings
-    this.renderer = new THREE.WebGLRenderer({
-      canvas,
-      antialias: true,
-      alpha: false,
-    });
-
-    // Modern renderer configuration
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.0;
-    this.renderer.setPixelRatio(
-      Math.min(window.devicePixelRatio, this.config.performance.maxPixelRatio)
-    );
-    this.renderer.setSize(container.clientWidth, container.clientHeight);
-
-    // Lighting
-    this.ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-    this.scene.add(this.ambientLight);
-
-    this.directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    this.directionalLight.position.set(10, 10, 10);
-    this.directionalLight.castShadow = true;
-    this.scene.add(this.directionalLight);
-
-    // Grid helper
-    if (this.config.visual.showGrid) {
-      this.gridHelper = new THREE.GridHelper(
-        this.config.visual.gridSize,
-        this.config.visual.gridDivisions,
-        0x444444,
-        0x222222
-      );
-      this.scene.add(this.gridHelper);
-    }
-
-    // Controls
-    this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-    this.controls.enableDamping = true;
-    this.controls.dampingFactor = 0.05;
-    this.controls.target.set(...this.config.camera.target);
-
-    // Update culling when camera stops moving
-    this.controls.addEventListener('end', () => {
-      this.fragmentsService.updateCulling(this.camera);
-    });
-
-    console.log('Three.js initialized with modern renderer settings');
-
-    // Initialize FragmentsService and WAIT for it to complete
-    console.log('Initializing FragmentsService...');
+  private async initViewer(): Promise<void> {
     try {
-      await this.fragmentsService.initialize(this.scene, this.camera, this.renderer, this.config);
-      console.log('FragmentsService initialized successfully');
-      this.isInitializing.set(false);
+      const canvas = this.canvasRef().nativeElement;
+
+      // Initialize Three.js renderer
+      this.renderer = new THREE.WebGLRenderer({
+        canvas,
+        antialias: RENDERER_CONFIG.antialias,
+        alpha: RENDERER_CONFIG.alpha,
+        preserveDrawingBuffer: RENDERER_CONFIG.preserveDrawingBuffer,
+        powerPreference: RENDERER_CONFIG.powerPreference,
+      });
+
+      // Modern rendering setup
+      this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+      this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      this.renderer.toneMappingExposure = 1.0;
+      this.renderer.setPixelRatio(
+        Math.min(window.devicePixelRatio, RENDERER_CONFIG.maxPixelRatio)
+      );
+
+      // Initialize scene
+      this.scene = new THREE.Scene();
+      this.scene.background = new THREE.Color(VIEWER_CONFIG.backgroundColor);
+
+      // Initialize camera
+      const aspect = canvas.clientWidth / canvas.clientHeight;
+      this.camera = new THREE.PerspectiveCamera(
+        CAMERA_CONFIG.fov,
+        aspect,
+        CAMERA_CONFIG.near,
+        CAMERA_CONFIG.far
+      );
+      this.camera.position.set(
+        VIEWER_CONFIG.cameraPosition.x,
+        VIEWER_CONFIG.cameraPosition.y,
+        VIEWER_CONFIG.cameraPosition.z
+      );
+
+      // Initialize OrbitControls
+      this.controls = new OrbitControls(this.camera, canvas);
+      this.controls.target.set(
+        VIEWER_CONFIG.cameraTarget.x,
+        VIEWER_CONFIG.cameraTarget.y,
+        VIEWER_CONFIG.cameraTarget.z
+      );
+      this.controls.enableDamping = CONTROLS_CONFIG.enableDamping;
+      this.controls.dampingFactor = CONTROLS_CONFIG.dampingFactor;
+      this.controls.minDistance = CONTROLS_CONFIG.minDistance;
+      this.controls.maxDistance = CONTROLS_CONFIG.maxDistance;
+      this.controls.maxPolarAngle = CONTROLS_CONFIG.maxPolarAngle;
+      this.controls.update();
+
+      // Add event listener for camera rest (culling update)
+      this.controls.addEventListener('end', () => {
+        this.fragmentsService.updateCulling().catch(console.error);
+      });
+
+      // Add basic lighting
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+      this.scene.add(ambientLight);
+
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+      directionalLight.position.set(10, 10, 5);
+      this.scene.add(directionalLight);
+
+      // Add grid helper if enabled
+      if (VIEWER_CONFIG.showGrid) {
+        this.gridHelper = new THREE.GridHelper(50, 50, 0x444444, 0x222222);
+        this.scene.add(this.gridHelper);
+      }
+
+      // Initialize stats
+      if (VIEWER_CONFIG.showStats) {
+        this.initStats();
+      }
+
+      // Setup resize observer
+      this.setupResizeObserver(canvas);
+
+      // Initialize FragmentsService
+      await this.fragmentsService.initialize(this.scene, this.camera);
+
+      // Initial render
+      this.updateSize();
+      this.renderer.render(this.scene, this.camera);
+
+      console.log('IFC Viewer initialized successfully');
     } catch (error) {
-      console.error('Failed to initialize FragmentsService:', error);
-      this.errorMessage.set('Failed to initialize IFC loader. Please check your network connection and refresh the page.');
-      throw error;
+      console.error('Failed to initialize viewer:', error);
     }
   }
 
   /**
-   * Initialize stats.js memory monitoring panel
+   * Initialize stats.js for memory monitoring
    */
   private initStats(): void {
-    if (!this.config.performance.showStats) {
-      return;
-    }
-
     this.stats = new Stats();
-    this.stats.showPanel(2); // Memory panel (MB)
-
-    // Position stats panel
+    this.stats.showPanel(2); // 2 = MB memory panel
     this.stats.dom.style.position = 'absolute';
-    this.stats.dom.style.top = '0';
-    this.stats.dom.style.left = '0';
-    this.stats.dom.style.zIndex = '1000';
-
-    const canvas = this.canvasRef().nativeElement;
-    const container = canvas.parentElement;
-    if (container) {
-      container.appendChild(this.stats.dom);
-    }
-
-    console.log('Stats.js memory panel initialized');
+    this.stats.dom.style.left = '0px';
+    this.stats.dom.style.top = '0px';
+    document.body.appendChild(this.stats.dom);
   }
 
   /**
-   * Setup ResizeObserver for responsive canvas sizing
+   * Setup resize observer for responsive canvas
    */
-  private setupResizeObserver(): void {
-    const canvas = this.canvasRef().nativeElement;
-    const container = canvas.parentElement;
-    if (!container) {
-      return;
-    }
-
-    this.resizeObserver = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const { width, height } = entry.contentRect;
-        this.onResize(width, height);
-      }
+  private setupResizeObserver(canvas: HTMLCanvasElement): void {
+    this.resizeObserver = new ResizeObserver(() => {
+      this.ngZone.runOutsideAngular(() => {
+        this.updateSize();
+      });
     });
-
-    this.resizeObserver.observe(container);
+    this.resizeObserver.observe(canvas);
   }
 
   /**
-   * Handle canvas resize
+   * Update canvas and camera size
    */
-  private onResize(width: number, height: number): void {
-    if (!this.camera || !this.renderer) {
-      return;
-    }
+  private updateSize(): void {
+    const canvas = this.canvasRef().nativeElement;
+    const width = canvas.clientWidth;
+    const height = canvas.clientHeight;
 
-    this.camera.aspect = width / height;
-    this.camera.updateProjectionMatrix();
-    this.renderer.setSize(width, height);
+    if (canvas.width !== width || canvas.height !== height) {
+      this.renderer.setSize(width, height, false);
+      this.camera.aspect = width / height;
+      this.camera.updateProjectionMatrix();
+    }
   }
 
   /**
@@ -238,49 +203,27 @@ export class IfcViewerComponent {
     this.animationFrameId = requestAnimationFrame(() => this.animate());
 
     // Stats begin
-    if (this.stats) {
-      this.stats.begin();
-    }
+    this.stats?.begin();
 
     // Update controls
-    if (this.controls) {
-      this.controls.update();
-    }
+    this.controls.update();
 
     // Render scene
-    if (this.renderer && this.scene && this.camera) {
-      this.renderer.render(this.scene, this.camera);
-    }
+    this.renderer.render(this.scene, this.camera);
 
     // Stats end
-    if (this.stats) {
-      this.stats.end();
-    }
+    this.stats?.end();
   }
 
   /**
-   * Handle IFC file selection from file input
+   * Handle file selection
    */
   async onFileSelected(event: Event): Promise<void> {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
 
-    if (!file) {
-      return;
-    }
-
-    // Check if service is initialized
-    if (!this.fragmentsService.isReady()) {
-      console.error('IFC Loader not ready yet');
-      alert('Please wait for the viewer to initialize before loading IFC files.');
-      input.value = '';
-      return;
-    }
-
-    if (!file.name.toLowerCase().endsWith('.ifc')) {
+    if (!file || !file.name.toLowerCase().endsWith('.ifc')) {
       console.error('Please select a valid .ifc file');
-      alert('Please select a valid .ifc file');
-      input.value = '';
       return;
     }
 
@@ -291,171 +234,188 @@ export class IfcViewerComponent {
   }
 
   /**
-   * Load an IFC file
+   * Load and process IFC file
    */
   private async loadIfcFile(file: File): Promise<void> {
     this.isLoading.set(true);
-    this.loadingProgress.set(0);
-    this.errorMessage.set(null);
+
+    const modelState: ModelState = {
+      id: crypto.randomUUID(),
+      name: file.name.replace('.ifc', ''),
+      loading: true,
+      progress: 0,
+    };
+
+    this.currentModel.set(modelState);
 
     try {
-      // Read file as ArrayBuffer
+      // Read file as array buffer
       const arrayBuffer = await file.arrayBuffer();
-      const uint8Array = new Uint8Array(arrayBuffer);
-
-      // Extract model name from filename (without extension)
-      const modelName = file.name.replace(/\.ifc$/i, '');
-      this.modelName.set(modelName);
+      const buffer = new Uint8Array(arrayBuffer);
 
       console.log(`Loading IFC file: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
 
-      // Load IFC using FragmentsService with progress callback that runs in Angular zone
-      const model = await this.fragmentsService.loadIfc(
-        uint8Array,
-        modelName,
-        (progress) => {
-          // Run callback in Angular zone to trigger change detection
-          this.ngZone.run(() => {
-            this.loadingProgress.set(progress);
-          });
-        }
+      // Load IFC without progress tracking (due to ThatOpen Components library limitations)
+      // Progress will jump from 0% to 100% when complete
+      const uuid = await this.fragmentsService.loadIfc(
+        buffer,
+        modelState.name
+        // Progress callback omitted due to internal library issues with callbacks
       );
 
+      // Update progress to 100% in Angular zone
+      this.ngZone.run(() => {
+        this.currentModel.update((state) =>
+          state ? { ...state, progress: 100 } : state
+        );
+      });
+
+      // Get the loaded model (FragmentsModel)
+      const model = this.fragmentsService.getModel(uuid);
       if (!model) {
-        throw new Error('IFC loader returned null model');
+        throw new Error('Failed to retrieve loaded model');
       }
 
-      // Run scene updates in Angular zone
+      console.log('Retrieved FragmentsModel from service:', model);
+      console.log('Model type:', model.constructor.name);
+      console.log('Model object:', model.object);
+
+      // Add model to scene
+      // In v3.x, FragmentsModel has an 'object' property that is a THREE.Object3D
+      this.scene.add(model.object);
+
+      // Bind camera for culling
+      this.fragmentsService.bindCamera(this.camera);
+
+      // Center camera on model
+      this.centerCameraOnModel(model.object);
+
+      // Update model state - mark as fully loaded
       this.ngZone.run(() => {
-        // Bind model to camera for culling
-        this.fragmentsService.bindModelToCamera(model, this.camera);
-
-        // Add model to scene (use model.object in v3.x)
-        this.scene.add(model.object);
-
-        // Trigger initial culling update
-        this.fragmentsService.updateCulling(this.camera);
-
-        // Fit camera to model bounds
-        this.fitCameraToModel(model.object);
-
-        this.hasModel.set(true);
-        console.log(`IFC model "${modelName}" loaded and added to scene`);
+        this.currentModel.update((state) =>
+          state
+            ? {
+                ...state,
+                loading: false,
+                progress: 100,
+                fragmentUuid: uuid,
+              }
+            : state
+        );
       });
+
+      console.log(`IFC file loaded successfully: ${file.name}`);
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Unknown error occurred';
-      console.error('Error loading IFC file:', error);
+      console.error('Failed to load IFC file:', error);
+      
+      // Run in Angular zone to ensure change detection
       this.ngZone.run(() => {
-        this.errorMessage.set(`Failed to load IFC file: ${errorMsg}`);
-        alert(`Error loading IFC file: ${errorMsg}\n\nPlease check the console for more details.`);
+        this.currentModel.update((state) =>
+          state
+            ? {
+                ...state,
+                loading: false,
+                error: error instanceof Error ? error.message : 'Unknown error',
+              }
+            : state
+        );
       });
     } finally {
+      // Ensure loading state is reset in Angular zone
       this.ngZone.run(() => {
         this.isLoading.set(false);
-        this.loadingProgress.set(0);
       });
     }
   }
 
   /**
-   * Fit camera to view the entire model
+   * Center camera on loaded model
    */
-  private fitCameraToModel(object: THREE.Object3D): void {
-    const box = new THREE.Box3().setFromObject(object);
-    const size = box.getSize(new THREE.Vector3());
+  private centerCameraOnModel(model: THREE.Object3D): void {
+    const box = new THREE.Box3().setFromObject(model);
     const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
 
     const maxDim = Math.max(size.x, size.y, size.z);
     const fov = this.camera.fov * (Math.PI / 180);
-    let cameraDistance = Math.abs(maxDim / 2 / Math.tan(fov / 2));
+    let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2));
+    cameraZ *= 1.5; // Add some padding
 
-    // Add some padding
-    cameraDistance *= 1.5;
-
-    // Position camera
-    const direction = this.camera.position.clone().sub(center).normalize();
-    this.camera.position.copy(direction.multiplyScalar(cameraDistance).add(center));
-
-    // Update controls target
+    this.camera.position.set(center.x + cameraZ, center.y + cameraZ, center.z + cameraZ);
     this.controls.target.copy(center);
     this.controls.update();
 
-    // Trigger culling update
-    this.fragmentsService.updateCulling(this.camera);
+      // Update culling after camera movement
+      this.fragmentsService.updateCulling().catch(console.error);
   }
 
   /**
-   * Export current model as .frag file
+   * Download current model as .frag file
    */
-  async onExportFragment(): Promise<void> {
-    if (!this.hasModel()) {
-      console.warn('No model loaded to export');
-      alert('Please load an IFC file first');
+  async downloadFragment(): Promise<void> {
+    const model = this.currentModel();
+    if (!model?.fragmentUuid) {
+      console.error('No model loaded');
       return;
     }
 
     try {
-      console.log('Exporting fragment...');
-      const buffer = await this.fragmentsService.exportFragment();
-
+      const buffer = await this.fragmentsService.exportFragment(model.fragmentUuid);
       if (!buffer) {
-        console.error('Failed to export fragment');
-        alert('Failed to export fragment. Please check the console for details.');
-        return;
+        throw new Error('Failed to export fragment');
       }
 
-      // Create Blob and download
+      // Create blob and download
       const blob = new Blob([buffer], { type: 'application/octet-stream' });
       const url = URL.createObjectURL(blob);
-
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${this.modelName() || 'model'}.frag`;
+      link.download = `${model.name}.frag`;
       link.click();
 
-      // Clean up
+      // Cleanup
       URL.revokeObjectURL(url);
 
-      console.log('Fragment exported successfully');
+      console.log(`Fragment exported: ${model.name}.frag`);
     } catch (error) {
-      console.error('Error exporting fragment:', error);
-      alert('Error exporting fragment. Please check the console for details.');
+      console.error('Failed to download fragment:', error);
     }
   }
 
   /**
-   * Cleanup on component destroy
+   * Open file picker
+   */
+  openFilePicker(): void {
+    this.fileInputRef().nativeElement.click();
+  }
+
+  /**
+   * Cleanup resources on destroy
    */
   ngOnDestroy(): void {
-    console.log('Disposing IFC viewer resources...');
+    try {
+      // Cancel animation frame
+      if (this.animationFrameId) {
+        cancelAnimationFrame(this.animationFrameId);
+      }
 
-    // Cancel animation frame
-    if (this.animationFrameId !== undefined) {
-      cancelAnimationFrame(this.animationFrameId);
-    }
+      // Remove stats
+      if (this.stats?.dom) {
+        this.stats.dom.remove();
+      }
 
-    // Disconnect resize observer
-    if (this.resizeObserver) {
-      this.resizeObserver.disconnect();
-    }
+      // Dispose controls
+      if (this.controls) {
+        this.controls.dispose();
+      }
 
-    // Dispose controls
-    if (this.controls) {
-      this.controls.removeEventListener('end', () => {});
-      this.controls.dispose();
-    }
+      // Dispose resize observer
+      if (this.resizeObserver) {
+        this.resizeObserver.disconnect();
+      }
 
-    // Remove stats panel
-    if (this.stats && this.stats.dom.parentElement) {
-      this.stats.dom.parentElement.removeChild(this.stats.dom);
-    }
-
-    // Dispose FragmentsService
-    this.fragmentsService.dispose();
-
-    // Dispose scene objects
-    if (this.scene) {
-      this.scene.traverse((object) => {
+      // Dispose scene objects
+      this.scene?.traverse((object) => {
         if (object instanceof THREE.Mesh) {
           object.geometry?.dispose();
           if (Array.isArray(object.material)) {
@@ -465,16 +425,20 @@ export class IfcViewerComponent {
           }
         }
       });
-      this.scene.clear();
-    }
 
-    // Dispose renderer
-    if (this.renderer) {
-      this.renderer.dispose();
-      this.renderer.forceContextLoss();
-    }
+      // Dispose renderer
+      if (this.renderer) {
+        this.renderer.dispose();
+        this.renderer.forceContextLoss();
+      }
 
-    console.log('IFC viewer resources disposed successfully');
+      // Dispose fragments service
+      this.fragmentsService.dispose().catch(console.error);
+
+      console.log('IFC Viewer disposed successfully');
+    } catch (error) {
+      console.error('Error during viewer disposal:', error);
+    }
   }
 }
 
