@@ -122,19 +122,39 @@ export class IfcViewerComponent {
         this.fragmentsService.updateCulling().catch(console.error);
       });
 
-      // Add basic lighting
-      const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+      // Add enhanced lighting for IFC models
+      // Ambient light for overall illumination
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+      ambientLight.name = 'AmbientLight';
       this.scene.add(ambientLight);
 
-      const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-      directionalLight.position.set(10, 10, 5);
-      this.scene.add(directionalLight);
+      // Directional lights from multiple angles
+      const directionalLight1 = new THREE.DirectionalLight(0xffffff, 1.0);
+      directionalLight1.position.set(10, 10, 5);
+      directionalLight1.name = 'DirectionalLight1';
+      this.scene.add(directionalLight1);
+      
+      const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.6);
+      directionalLight2.position.set(-10, 10, -5);
+      directionalLight2.name = 'DirectionalLight2';
+      this.scene.add(directionalLight2);
+      
+      // Hemisphere light for better outdoor scene rendering
+      const hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
+      hemisphereLight.position.set(0, 20, 0);
+      hemisphereLight.name = 'HemisphereLight';
+      this.scene.add(hemisphereLight);
+      
+      console.log('✓ Enhanced lighting setup complete');
 
       // Add grid helper if enabled
       if (VIEWER_CONFIG.showGrid) {
         this.gridHelper = new THREE.GridHelper(50, 50, 0x444444, 0x222222);
         this.scene.add(this.gridHelper);
       }
+      
+      // DIAGNOSTIC: Add a test cube to verify rendering is working
+      this.addTestCube();
 
       // Initialize stats
       if (VIEWER_CONFIG.showStats) {
@@ -282,7 +302,39 @@ export class IfcViewerComponent {
 
       // Add model to scene
       // In v3.x, FragmentsModel has an 'object' property that is a THREE.Object3D
+      console.log('Adding model.object to scene...');
+      console.log('Scene children before add:', this.scene.children.length);
       this.scene.add(model.object);
+      console.log('Scene children after add:', this.scene.children.length);
+      console.log('Model.object parent:', model.object.parent === this.scene ? 'scene' : 'other');
+      
+      // CRITICAL FIX: Manually add fragment meshes if model.object is empty
+      // In some versions of ThatOpen Components, fragment meshes are not automatically
+      // added as children of model.object and must be added explicitly
+      if (model.object.children.length === 0 && model.items && model.items.size > 0) {
+        console.warn('⚠️ model.object is empty but model has fragments - adding meshes manually');
+        let addedCount = 0;
+        for (const [key, fragment] of model.items) {
+          if (fragment.mesh) {
+            model.object.add(fragment.mesh);
+            addedCount++;
+          }
+        }
+        console.log(`✓ Manually added ${addedCount} fragment meshes to model.object`);
+      }
+      
+      // DIAGNOSTIC: Log scene graph details
+      this.logSceneGraphDetails(model.object);
+      
+      // DIAGNOSTIC: Add bounding box helper for visualization
+      this.addBoundingBoxHelper(model.object);
+      
+      // FIX: Ensure all materials are visible
+      this.ensureMaterialsVisible(model.object);
+      
+      // FIX: Force an immediate render to see if anything appears
+      console.log('Forcing immediate render...');
+      this.renderer.render(this.scene, this.camera);
 
       // Bind camera for culling
       this.fragmentsService.bindCamera(this.camera);
@@ -329,14 +381,179 @@ export class IfcViewerComponent {
   }
 
   /**
+   * DIAGNOSTIC: Add test cube to verify rendering works
+   */
+  private addTestCube(): void {
+    const geometry = new THREE.BoxGeometry(2, 2, 2);
+    const material = new THREE.MeshStandardMaterial({ 
+      color: 0xff0000,
+      wireframe: false,
+      side: THREE.DoubleSide
+    });
+    const cube = new THREE.Mesh(geometry, material);
+    cube.name = 'TestCube';
+    cube.position.set(0, 1, 0);
+    this.scene.add(cube);
+    console.log('✓ Added red test cube at origin (0, 1, 0) to verify rendering');
+  }
+
+  /**
+   * DIAGNOSTIC: Log detailed scene graph information
+   */
+  private logSceneGraphDetails(model: THREE.Object3D): void {
+    console.log('=== Scene Graph Diagnostics ===');
+    console.log('Model name:', model.name);
+    console.log('Model type:', model.type);
+    console.log('Model visible:', model.visible);
+    console.log('Model children count:', model.children.length);
+    
+    let meshCount = 0;
+    let vertexCount = 0;
+    let materialCount = 0;
+    
+    model.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        meshCount++;
+        if (child.geometry) {
+          const positions = child.geometry.attributes.position;
+          if (positions) {
+            vertexCount += positions.count;
+          }
+        }
+        if (child.material) {
+          materialCount++;
+        }
+      }
+    });
+    
+    console.log('Total meshes:', meshCount);
+    console.log('Total vertices:', vertexCount);
+    console.log('Total materials:', materialCount);
+    
+    // Log bounding box
+    const box = new THREE.Box3().setFromObject(model);
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    
+    console.log('Bounding box center:', center.toArray());
+    console.log('Bounding box size:', size.toArray());
+    console.log('Max dimension:', Math.max(size.x, size.y, size.z));
+    
+    // Check if model is degenerate (zero size)
+    if (size.lengthSq() === 0) {
+      console.warn('⚠️ WARNING: Model has zero size! May not be visible.');
+    }
+    
+    console.log('=== End Diagnostics ===');
+  }
+  
+  /**
+   * DIAGNOSTIC: Add bounding box helper for visualization
+   */
+  private addBoundingBoxHelper(model: THREE.Object3D): void {
+    try {
+      const box = new THREE.Box3().setFromObject(model);
+      
+      // Only add helper if box is valid
+      if (box.isEmpty()) {
+        console.warn('Cannot add bounding box helper - box is empty');
+        return;
+      }
+      
+      const helper = new THREE.Box3Helper(box, 0x00ff00);
+      helper.name = 'BoundingBoxHelper';
+      this.scene.add(helper);
+      
+      console.log('✓ Added green bounding box helper for visualization');
+    } catch (error) {
+      console.warn('Failed to add bounding box helper:', error);
+    }
+  }
+  
+  /**
+   * FIX: Ensure all materials are visible and properly configured
+   */
+  private ensureMaterialsVisible(model: THREE.Object3D): void {
+    console.log('=== Fixing Materials ===');
+    
+    let materialsFixed = 0;
+    
+    model.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        // Ensure mesh is visible
+        child.visible = true;
+        child.frustumCulled = false; // Temporarily disable frustum culling for debugging
+        
+        // Fix materials
+        const materials = Array.isArray(child.material) ? child.material : [child.material];
+        
+        materials.forEach((material) => {
+          if (material) {
+            // Ensure material is visible
+            material.visible = true;
+            
+            // Fix transparency issues
+            if (material.transparent && material.opacity === 0) {
+              material.opacity = 1.0;
+              materialsFixed++;
+            }
+            
+            // Ensure side is visible
+            if (material.side === THREE.FrontSide) {
+              material.side = THREE.DoubleSide; // Render both sides
+              materialsFixed++;
+            }
+            
+            // Force material update
+            material.needsUpdate = true;
+            
+            // If it's a MeshBasicMaterial or MeshStandardMaterial, ensure it has color
+            if ('color' in material && material.color) {
+              // Ensure color is not black (which might be invisible with certain lighting)
+              if (material.color.getHex() === 0x000000) {
+                material.color.setHex(0xaaaaaa); // Set to gray
+                materialsFixed++;
+              }
+            }
+          }
+        });
+      }
+    });
+    
+    console.log(`✓ Fixed ${materialsFixed} material issues`);
+    console.log('=== End Material Fixes ===');
+  }
+
+  /**
    * Center camera on loaded model
    */
   private centerCameraOnModel(model: THREE.Object3D): void {
     const box = new THREE.Box3().setFromObject(model);
+    
+    // Check if box is valid
+    if (box.isEmpty()) {
+      console.error('Cannot center camera - bounding box is empty!');
+      // Fallback to default camera position
+      this.camera.position.set(10, 10, 10);
+      this.controls.target.set(0, 0, 0);
+      this.controls.update();
+      return;
+    }
+    
     const center = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3());
 
     const maxDim = Math.max(size.x, size.y, size.z);
+    
+    // Ensure maxDim is not zero
+    if (maxDim === 0) {
+      console.error('Model has zero dimensions!');
+      this.camera.position.set(10, 10, 10);
+      this.controls.target.set(0, 0, 0);
+      this.controls.update();
+      return;
+    }
+    
     const fov = this.camera.fov * (Math.PI / 180);
     let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2));
     cameraZ *= 1.5; // Add some padding
@@ -344,6 +561,27 @@ export class IfcViewerComponent {
     this.camera.position.set(center.x + cameraZ, center.y + cameraZ, center.z + cameraZ);
     this.controls.target.copy(center);
     this.controls.update();
+    
+    console.log('Camera positioned at:', this.camera.position.toArray());
+    console.log('Camera looking at:', this.controls.target.toArray());
+    console.log('Camera distance:', this.camera.position.distanceTo(this.controls.target));
+    
+    // FIX: Adjust camera near/far planes if needed for the model size
+    const distanceToCenter = this.camera.position.distanceTo(center);
+    const recommendedNear = Math.max(0.1, distanceToCenter / 100);
+    const recommendedFar = Math.max(1000, (distanceToCenter + maxDim) * 2);
+    
+    if (this.camera.near > recommendedNear || this.camera.far < recommendedFar) {
+      console.warn(`⚠️ Camera near/far planes may need adjustment:`);
+      console.warn(`  Current: near=${this.camera.near}, far=${this.camera.far}`);
+      console.warn(`  Recommended: near=${recommendedNear.toFixed(2)}, far=${recommendedFar.toFixed(2)}`);
+      
+      // Automatically adjust if needed
+      this.camera.near = recommendedNear;
+      this.camera.far = recommendedFar;
+      this.camera.updateProjectionMatrix();
+      console.log('✓ Camera planes adjusted automatically');
+    }
 
       // Update culling after camera movement
       this.fragmentsService.updateCulling().catch(console.error);

@@ -157,6 +157,64 @@ export class FragmentsService {
       console.log('Model object:', model.object);
       console.log('Model has', model.object.children.length, 'children');
       
+      // DIAGNOSTIC: Log detailed fragment information
+      console.log('=== FragmentsModel Deep Inspection ===');
+      console.log('Model properties:', Object.keys(model));
+      console.log('Model.items:', model.items);
+      console.log('Model.items size:', model.items?.size || 0);
+      
+      // Check if model has fragments
+      if (model.items && model.items.size > 0) {
+        console.log('Model contains fragments! Iterating...');
+        let fragmentIndex = 0;
+        for (const [key, fragment] of model.items) {
+          console.log(`Fragment ${fragmentIndex}: key=${key}`);
+          console.log(`  Fragment.id:`, fragment.id);
+          console.log(`  Fragment.mesh:`, fragment.mesh);
+          console.log(`  Fragment.mesh.visible:`, fragment.mesh?.visible);
+          console.log(`  Fragment.mesh.geometry:`, fragment.mesh?.geometry);
+          console.log(`  Fragment.mesh.material:`, fragment.mesh?.material);
+          
+          // Check if fragment mesh is in scene
+          if (fragment.mesh) {
+            console.log(`  Fragment.mesh.parent:`, fragment.mesh.parent);
+            console.log(`  Fragment.mesh in scene tree:`, this.isInSceneTree(fragment.mesh));
+          }
+          
+          fragmentIndex++;
+          if (fragmentIndex >= 3) {
+            console.log(`  ... (${model.items.size - 3} more fragments)`);
+            break;
+          }
+        }
+      }
+      
+      if (model.object.children.length > 0) {
+        console.log('Model.object children:', model.object.children.length);
+        console.log('First child type:', model.object.children[0].type);
+        console.log('First child name:', model.object.children[0].name);
+        console.log('First child visible:', model.object.children[0].visible);
+        
+        // Log first few children
+        for (let i = 0; i < Math.min(5, model.object.children.length); i++) {
+          const child = model.object.children[i];
+          console.log(`  Child ${i}: type=${child.type}, name=${child.name}, visible=${child.visible}`);
+        }
+        
+        // Check for meshes
+        let meshCount = 0;
+        model.object.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            meshCount++;
+          }
+        });
+        console.log('Total meshes in model.object:', meshCount);
+      } else {
+        console.warn('⚠️ model.object has NO children!');
+      }
+      
+      console.log('=== End FragmentsModel Inspection ===');
+      
       // Report 100% progress (we only get start and end, no intermediate updates)
       if (onProgress) {
         onProgress(100);
@@ -329,5 +387,19 @@ export class FragmentsService {
    */
   isInitialized(): boolean {
     return this.initialized;
+  }
+
+  /**
+   * Helper: Check if an object is in the scene tree
+   */
+  private isInSceneTree(object: THREE.Object3D): boolean {
+    let current: THREE.Object3D | null = object;
+    while (current) {
+      if (current.type === 'Scene') {
+        return true;
+      }
+      current = current.parent;
+    }
+    return false;
   }
 }
