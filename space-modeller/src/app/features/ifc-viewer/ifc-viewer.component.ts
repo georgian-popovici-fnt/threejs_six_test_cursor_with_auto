@@ -308,19 +308,10 @@ export class IfcViewerComponent {
       console.log('Scene children after add:', this.scene.children.length);
       console.log('Model.object parent:', model.object.parent === this.scene ? 'scene' : 'other');
       
-      // CRITICAL FIX: Manually add fragment meshes if model.object is empty
-      // In some versions of ThatOpen Components, fragment meshes are not automatically
-      // added as children of model.object and must be added explicitly
-      if (model.object.children.length === 0 && model.items && model.items.size > 0) {
-        console.warn('⚠️ model.object is empty but model has fragments - adding meshes manually');
-        let addedCount = 0;
-        for (const [key, fragment] of model.items) {
-          if (fragment.mesh) {
-            model.object.add(fragment.mesh);
-            addedCount++;
-          }
-        }
-        console.log(`✓ Manually added ${addedCount} fragment meshes to model.object`);
+      // Note: Fragment meshes should be automatically added as children of model.object
+      // If model.object is empty, the fragments may not have been loaded correctly
+      if (model.object.children.length === 0) {
+        console.warn('⚠️ model.object has no children - fragments may not have loaded correctly');
       }
       
       // DIAGNOSTIC: Log scene graph details
